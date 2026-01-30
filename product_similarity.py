@@ -1,304 +1,195 @@
 """
-Product Similarity Algorithm from Hoberg & Phillips (2016)
-"Text-Based Network Industries and Endogenous Product Differentiation"
+Product similarity algorithm from Hoberg & Phillips (2016), Appendix A.
+Cosine similarity on binary word vectors from firm product descriptions.
 
-This implements Appendix A: Computing product similarity between firms
-using cosine similarity on word vectors from product descriptions.
+Usage:
+    python3 product_similarity.py path/to/firms/                   # print to terminal
+    python3 product_similarity.py path/to/firms/ -o results.csv    # save to CSV
 """
 
+import argparse
+import csv
 import numpy as np
 import re
+import sys
 from collections import Counter
+from pathlib import Path
 from typing import List, Dict, Tuple
 
 
 def preprocess_text(text: str) -> List[str]:
-    """
-    Extract words from text, converting to lowercase.
-    
-    Args:
-        text: Raw text from a product description
-        
-    Returns:
-        List of cleaned words
-    """
-    words = re.findall(r'\b[a-zA-Z]+\b', text.lower())
-    return words
+    """Extract lowercase words from text."""
+    return re.findall(r'\b[a-zA-Z]+\b', text.lower())
 
 
 def build_word_vector(words: List[str], vocabulary: List[str]) -> np.ndarray:
-    """
-    Build a binary vector P_i for a firm based on word usage.
-    
-    From the paper: "For a given firm, a given element of this vector is one 
-    if the word associated with the given element is in the given firm's 
-    product description."
-    
-    Args:
-        words: List of words used by the firm
-        vocabulary: Complete list of unique words across all firms
-        
-    Returns:
-        Binary numpy array of shape (len(vocabulary),)
-    """
+    """Binary vector: 1 if firm uses the word, 0 if not."""
     word_set = set(words)
-    vector = np.array([1.0 if word in word_set else 0.0 for word in vocabulary])
-    return vector
+    return np.array([1.0 if word in word_set else 0.0 for word in vocabulary])
 
 
 def normalize_vector(vector: np.ndarray) -> np.ndarray:
-    """
-    Normalize vector to unit length.
-    
-    From the paper (Equation A1):
-    V_i = P_i / sqrt(P_i . P_i)
-    
-    Args:
-        vector: Unnormalized word vector
-        
-    Returns:
-        Normalized vector with unit length
-    """
-    norm = np.linalg.norm(vector)  # Same as sqrt(P_i . P_i)
+    """Scale vector to unit length. Eq. A1: V_i = P_i / sqrt(P_i . P_i)"""
+    norm = np.linalg.norm(vector)
     if norm == 0:
         return vector
     return vector / norm
 
 
 def compute_product_similarity(v_i: np.ndarray, v_j: np.ndarray) -> float:
-    """
-    Compute product similarity between two firms.
-    
-    From the paper (Equation A2):
-    Product Similarity_i,j = V_i . V_j (dot product)
-    
-    Args:
-        v_i: Normalized word vector for firm i
-        v_j: Normalized word vector for firm j
-        
-    Returns:
-        Similarity score in range [0, 1]
-    """
+    """Dot product of normalized vectors. Eq. A2: similarity = V_i . V_j"""
     return float(np.dot(v_i, v_j))
 
 
 def compute_product_differentiation(v_i: np.ndarray, v_j: np.ndarray) -> float:
-    """
-    Compute product differentiation between two firms.
-    
-    From the paper (Equation A3):
-    Product Differentiation_i,j = 1 - (V_i . V_j)
-    
-    Args:
-        v_i: Normalized word vector for firm i
-        v_j: Normalized word vector for firm j
-        
-    Returns:
-        Differentiation score in range [0, 1]
-    """
+    """Eq. A3: differentiation = 1 - similarity."""
     return 1.0 - compute_product_similarity(v_i, v_j)
 
 
-def filter_common_words(all_words: List[List[str]], 
+def filter_common_words(all_words: List[List[str]],
                         max_frequency: float = 0.25) -> List[str]:
-    """
-    Filter out words that appear in more than max_frequency of all documents.
-    
-    From the paper: "we restrict attention to words that are either nouns or 
-    proper nouns and that also appear in fewer than 25 percent of all business 
-    descriptions in the given year."
-    
-    Args:
-        all_words: List of word lists, one per firm
-        max_frequency: Maximum fraction of documents a word can appear in
-        
-    Returns:
-        Filtered vocabulary list
-    """
+    """Remove words appearing in more than max_frequency of documents."""
     n_docs = len(all_words)
-    
-    # Count in how many documents each word appears
+
     doc_frequency: Counter = Counter()
     for words in all_words:
         for word in set(words):
             doc_frequency[word] += 1
-    
-    # Keep words that appear in fewer than max_frequency of documents
-    vocabulary = [word for word, count in doc_frequency.items() 
-                  if count / n_docs < max_frequency]
-    
-    return sorted(vocabulary)
+
+    return sorted(word for word, count in doc_frequency.items()
+                  if count / n_docs < max_frequency)
 
 
 class ProductSimilarityAnalyzer:
-    """
-    Analyzer for computing product similarity between firms.
-    
-    Implements Appendix A of Hoberg & Phillips (2016).
-    """
-    
+    """Computes pairwise product similarity between firms."""
+
     def __init__(self, max_word_frequency: float = 0.25):
-        """
-        Args:
-            max_word_frequency: Filter out words appearing in more than this
-                                fraction of all documents (default: 25%)
-        """
         self.max_word_frequency = max_word_frequency
         self.vocabulary: List[str] = []
         self.firm_vectors: Dict[str, np.ndarray] = {}
         self.firm_names: List[str] = []
-        
+
     def fit(self, descriptions: Dict[str, str]) -> None:
-        """
-        Build vocabulary and compute normalized vectors for all firms.
-        
-        Args:
-            descriptions: Dict mapping firm names to product descriptions
-        """
+        """Build vocabulary and normalized vectors from product descriptions."""
         self.firm_names = list(descriptions.keys())
-        
-        # Preprocess all descriptions
+
         all_words: List[List[str]] = []
         firm_words: Dict[str, List[str]] = {}
         for name, text in descriptions.items():
             words = preprocess_text(text)
             all_words.append(words)
             firm_words[name] = words
-        
-        # Build filtered vocabulary
+
         self.vocabulary = filter_common_words(all_words, self.max_word_frequency)
         print(f"Vocabulary size: {len(self.vocabulary)} words")
-        
-        # Build and normalize vectors for each firm
+
         for name in self.firm_names:
             vector = build_word_vector(firm_words[name], self.vocabulary)
             self.firm_vectors[name] = normalize_vector(vector)
-    
+
     def get_similarity(self, firm_i: str, firm_j: str) -> float:
-        """Get product similarity between two firms."""
+        """Similarity between two firms (0 to 1)."""
         return compute_product_similarity(
-            self.firm_vectors[firm_i], 
+            self.firm_vectors[firm_i],
             self.firm_vectors[firm_j]
         )
-    
+
     def get_differentiation(self, firm_i: str, firm_j: str) -> float:
-        """Get product differentiation between two firms."""
+        """Differentiation between two firms (0 to 1)."""
         return 1.0 - self.get_similarity(firm_i, firm_j)
-    
+
     def get_similarity_matrix(self) -> Tuple[np.ndarray, List[str]]:
-        """
-        Compute the full pairwise similarity matrix for all firms.
-        
-        This is efficient with numpy - computes all pairs at once.
-        
-        Returns:
-            Tuple of (similarity_matrix, firm_names)
-        """
-        # Stack all vectors into a matrix (n_firms x vocabulary_size)
+        """All pairwise similarities via matrix multiplication."""
         V = np.vstack([self.firm_vectors[name] for name in self.firm_names])
-        
-        # Matrix multiplication gives all pairwise dot products at once
-        # This is MUCH faster than nested loops for large datasets
-        similarity_matrix = V @ V.T
-        
-        return similarity_matrix, self.firm_names
-    
+        return V @ V.T, self.firm_names
+
     def get_most_similar_firms(self, firm: str, top_n: int = 5) -> List[Tuple[str, float]]:
-        """
-        Find the most similar firms to a given firm.
-        
-        Args:
-            firm: Name of the firm to compare
-            top_n: Number of similar firms to return
-            
-        Returns:
-            List of (firm_name, similarity_score) tuples
-        """
-        similarities = []
-        for other_firm in self.firm_names:
-            if other_firm != firm:
-                sim = self.get_similarity(firm, other_firm)
-                similarities.append((other_firm, sim))
-        
+        """Top N most similar firms to the given firm."""
+        similarities = [
+            (other, self.get_similarity(firm, other))
+            for other in self.firm_names if other != firm
+        ]
         similarities.sort(key=lambda x: x[1], reverse=True)
         return similarities[:top_n]
 
 
-def print_matrix(matrix: np.ndarray, names: List[str]) -> None:
-    """Pretty print a similarity matrix."""
-    print(f"{'':>15}", end="")
-    for name in names:
-        print(f"{name[:10]:>12}", end="")
-    print()
-    
-    for i, name_i in enumerate(names):
-        print(f"{name_i[:15]:>15}", end="")
-        for j in range(len(names)):
-            print(f"{matrix[i, j]:>12.3f}", end="")
-        print()
+def write_pairwise_csv(matrix: np.ndarray, names: List[str], output_path: str) -> None:
+    """Write all unique pairs to CSV: ID1, ID2, similarity."""
+    with open(output_path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["ID1", "ID2", "similarity"])
+        for i in range(len(names)):
+            for j in range(i + 1, len(names)):
+                writer.writerow([names[i], names[j], f"{matrix[i, j]:.6f}"])
 
 
-# Example usage
+def print_pairwise(matrix: np.ndarray, names: List[str]) -> None:
+    """Print all unique pairs to terminal: ID1 ID2 similarity."""
+    print(f"{'ID1':<20} {'ID2':<20} {'similarity':>10}")
+    print("-" * 52)
+    for i in range(len(names)):
+        for j in range(i + 1, len(names)):
+            print(f"{names[i]:<20} {names[j]:<20} {matrix[i, j]:>10.6f}")
+
+
+def load_descriptions_from_directory(directory) -> Dict[str, str]:
+    """Load .txt files from a directory. Filename (without .txt) = firm name."""
+    descriptions = {}
+    dir_path = Path(directory)
+
+    if not dir_path.is_dir():
+        print(f"Error: '{directory}' is not a directory")
+        exit(1)
+
+    txt_files = sorted(dir_path.glob("*.txt"))
+    if not txt_files:
+        print(f"Error: no .txt files found in '{directory}'")
+        exit(1)
+
+    for filepath in txt_files:
+        firm_name = filepath.stem  # filename without extension
+        descriptions[firm_name] = filepath.read_text()
+
+    return descriptions
+
+
+DEFAULT_DIR = Path(__file__).parent / "sample_firms"
+
+
 if __name__ == "__main__":
-    # Sample product descriptions
-    sample_descriptions = {
-        "TechCorp": """
-            We develop software solutions for enterprise customers. Our products 
-            include cloud computing services, database management systems, and 
-            cybersecurity applications. We serve technology companies and 
-            financial institutions with our innovative platform solutions.
-        """,
-        "DataSystems": """
-            Our company provides database management and cloud computing services 
-            to enterprise clients. We specialize in software development, data 
-            analytics, and technology consulting for businesses in the financial 
-            and healthcare sectors.
-        """,
-        "HealthMed": """
-            We manufacture pharmaceutical products and medical devices. Our 
-            research focuses on biotechnology and drug development. We serve 
-            hospitals, clinics, and healthcare providers with our medical 
-            equipment and therapeutic solutions.
-        """,
-        "PharmaCo": """
-            Our business involves pharmaceutical research and drug manufacturing. 
-            We develop biotechnology products and medical treatments. Our customers 
-            include hospitals and healthcare organizations seeking therapeutic 
-            and diagnostic solutions.
-        """,
-        "RetailMart": """
-            We operate retail stores and e-commerce platforms. Our business 
-            includes consumer products, grocery items, and household goods. 
-            We serve customers through our nationwide store network and 
-            online shopping services.
-        """
-    }
-    
-    print("=" * 70)
-    print("Product Similarity Analysis (NumPy version)")
-    print("Hoberg & Phillips (2016) - Appendix A")
-    print("=" * 70)
-    print()
-    
-    analyzer = ProductSimilarityAnalyzer(max_word_frequency=0.50)
-    analyzer.fit(sample_descriptions)
-    
-    print()
-    print("Similarity Matrix:")
-    print("-" * 70)
-    
+    parser = argparse.ArgumentParser(
+        description="Compute product similarity between firms."
+    )
+    parser.add_argument(
+        "directory", nargs="?", default=None,
+        help="Directory of .txt files (one per firm). Filename = firm name."
+    )
+    parser.add_argument(
+        "-o", "--output", default=None,
+        help="Save pairwise results to CSV file (e.g. results.csv)"
+    )
+    parser.add_argument(
+        "--threshold", type=float, default=0.80,
+        help="Max word frequency filter (default: 0.80)"
+    )
+    args = parser.parse_args()
+
+    directory = args.directory or DEFAULT_DIR
+    descriptions = load_descriptions_from_directory(directory)
+
+    print(f"Loaded {len(descriptions)} firms", file=sys.stderr)
+
+    analyzer = ProductSimilarityAnalyzer(max_word_frequency=args.threshold)
+    analyzer.fit(descriptions)
+
     matrix, names = analyzer.get_similarity_matrix()
-    print_matrix(matrix, names)
-    
-    print()
-    print("Most Similar Firms:")
-    print("-" * 70)
-    
-    for firm in names:
-        similar = analyzer.get_most_similar_firms(firm, top_n=2)
-        print(f"{firm}:")
-        for other, score in similar:
-            print(f"  -> {other}: {score:.3f}")
-        print()
-    
-    print("=" * 70)
+
+    n = len(names)
+    total_pairs = n * (n - 1) // 2
+    print(f"Computed {total_pairs} pairwise similarities", file=sys.stderr)
+
+    if args.output:
+        write_pairwise_csv(matrix, names, args.output)
+        print(f"Results saved to {args.output}", file=sys.stderr)
+    else:
+        print_pairwise(matrix, names)
