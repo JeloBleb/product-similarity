@@ -11,7 +11,8 @@ Given a set of firm product descriptions, this tool computes pairwise similarity
 ## Algorithm
 
 1. Parse each firm's product description into a set of unique words
-2. Filter out words appearing in more than 25% of all descriptions
+2. Filter out common words: the paper drops words appearing in more than 25% of
+   descriptions (configurable with `--threshold`; see below)
 3. Construct a binary word vector for each firm (Equation A1)
 4. Normalize each vector to unit length
 5. Compute pairwise cosine similarity for all firm pairs (Equation A2)
@@ -37,6 +38,9 @@ firms/
 ### Run
 
 ```bash
+# Try it on the five bundled sample firms in sample_firms/
+python3 product_similarity.py
+
 # Print pairwise results to terminal
 python3 product_similarity.py firms/
 
@@ -46,6 +50,11 @@ python3 product_similarity.py firms/ -o results.csv
 # Adjust the common-word frequency filter (default: 0.80)
 python3 product_similarity.py firms/ --threshold 0.25 -o results.csv
 ```
+
+The paper's 25% cutoff assumes a large corpus. On a handful of firms it removes
+almost every shared word (with 5 firms, anything used by 2 or more is gone), so
+the command-line default is a looser 0.80. Use `--threshold 0.25` to match the
+paper on real-sized data. The Python class defaults to 0.25.
 
 ### Output
 
@@ -68,6 +77,10 @@ analyzer.get_similarity("FirmA", "FirmB")        # single pair
 analyzer.get_similarity_matrix()                  # all pairs
 analyzer.get_most_similar_firms("FirmA", top_n=5) # ranked neighbors
 ```
+
+## License
+
+MIT
 
 ## Reference
 

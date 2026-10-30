@@ -81,7 +81,7 @@ class ProductSimilarityAnalyzer:
             firm_words[name] = words
 
         self.vocabulary = filter_common_words(all_words, self.max_word_frequency)
-        print(f"Vocabulary size: {len(self.vocabulary)} words")
+        print(f"Vocabulary size: {len(self.vocabulary)} words", file=sys.stderr)
 
         for name in self.firm_names:
             vector = build_word_vector(firm_words[name], self.vocabulary)
@@ -138,13 +138,11 @@ def load_descriptions_from_directory(directory) -> Dict[str, str]:
     dir_path = Path(directory)
 
     if not dir_path.is_dir():
-        print(f"Error: '{directory}' is not a directory")
-        exit(1)
+        sys.exit(f"Error: '{directory}' is not a directory")
 
     txt_files = sorted(dir_path.glob("*.txt"))
     if not txt_files:
-        print(f"Error: no .txt files found in '{directory}'")
-        exit(1)
+        sys.exit(f"Error: no .txt files found in '{directory}'")
 
     for filepath in txt_files:
         firm_name = filepath.stem  # filename without extension
